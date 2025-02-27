@@ -16,18 +16,6 @@ Can_Msg txmsg2[100];
 Can_Msg txmsg3[100];
 Can_Msg rxmsg[100];
 
-// 打印报文和ID
-void print_frame(Can_Msg *msg)
-{
-    printf("Sending CAN Frame:\n");
-    printf("ID: 0x%X, Data: ", msg->ID);
-    for (int i = 0; i < msg->DataLen; i++)
-    {
-        printf("%02X ", msg->Data[i]);
-    }
-    printf("\n");
-}
-
 class CanBusControlNode : public rclcpp::Node
 {
 public:
@@ -89,6 +77,17 @@ public:
 
 private:
     rclcpp::TimerBase::SharedPtr timer_;
+    // 打印报文和ID
+    void print_frame(Can_Msg *msg)
+    {
+        printf("Sending CAN Frame:\n");
+        printf("ID: 0x%X, Data: ", msg->ID);
+        for (int i = 0; i < msg->DataLen; i++)
+        {
+            printf("%02X ", msg->Data[i]);
+        }
+        printf("\n");
+    }
     void calculate_speed(int speed, int rad, unsigned char *data)
     {
         // 目标速度 (单位: 0.001 m/s)

@@ -130,7 +130,6 @@ const double odom_twist_covariance2[36] = {
       0,    0,    0,   0,   0, 1e-9 
 };
 
-// 机器人底盘类，转换为 ROS2 风格，继承自 rclcpp::Node
 class turn_on_robot : public rclcpp::Node
 {
 public:
@@ -163,6 +162,9 @@ private:
     bool Get_Sensor_Data_New();
     unsigned char Check_Sum(unsigned char Count_Number, unsigned char mode);
     float Odom_Trans(uint8_t Data_High, uint8_t Data_Low);
+    void print_frame(P_Can_Msg pCan_Msg);
+    void calculate_speed(int speed, int rad, unsigned char *data);
+    void move(int speed, int rad);
 
     // 时间、采样周期变量
     rclcpp::Time _Now, _Last_Time;
