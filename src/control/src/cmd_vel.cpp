@@ -4,7 +4,9 @@
 #include "std_msgs/msg/float32.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
-#include "control/canbus.h"
+#include "control/canbus.h" // 假设你的 CAN 库头文件是 control/canbus.h
+#include <string.h>         // 引入 memset
+#include <stdio.h>
 
 int dev = 0;
 int cpot0 = 0;
@@ -14,38 +16,43 @@ Can_Msg txmsg2[100];
 Can_Msg txmsg3[100];
 Can_Msg rxmsg[100];
 
-
-
-//打印报文和ID
-void print_frame(Can_Msg* msg) {
+// 打印报文和ID
+void print_frame(Can_Msg *msg)
+{
     printf("Sending CAN Frame:\n");
     printf("ID: 0x%X, Data: ", msg->ID);
-    for (int i = 0; i < msg->DataLen; i++) {
+    for (int i = 0; i < msg->DataLen; i++)
+    {
         printf("%02X ", msg->Data[i]);
     }
     printf("\n");
 }
 
-class CanBusControlNode : public rclcpp::Node {
+class CanBusControlNode : public rclcpp::Node
+{
 public:
-    CanBusControlNode() : Node("canbus_control"), frame_counter(0) {
-        // 初始化CAN设备及配置
+    CanBusControlNode() : Node("canbus_control")
+    {
+        // 初始化CAN设备及配置 (这部分代码基本保持不变)
         int devs, ret;
         Can_Config cancfg;
         devs = CAN_ScanDevice();
-        if(devs <= 0) {
+        if (devs <= 0)
+        {
             RCLCPP_ERROR(this->get_logger(), "No CAN device found");
             rclcpp::shutdown();
             return;
         }
         ret = CAN_OpenDevice(dev, cpot0);
-        if(ret != 0) {
+        if (ret != 0)
+        {
             RCLCPP_ERROR(this->get_logger(), "CAN_OpenDevice channel0 failed");
             rclcpp::shutdown();
             return;
         }
         ret = CAN_OpenDevice(dev, cpot1);
-        if(ret != 0) {
+        if (ret != 0)
+        {
             RCLCPP_ERROR(this->get_logger(), "CAN_OpenDevice channel1 failed");
             rclcpp::shutdown();
             return;
@@ -54,111 +61,105 @@ public:
         cancfg.model = 0;
         cancfg.configs = 0;
         cancfg.baudrate = 500000;
-        cancfg.configs |= 0x0001;  
-        cancfg.configs |= 0x0002;  
+        cancfg.configs |= 0x0001;
+        cancfg.configs |= 0x0002;
         cancfg.configs |= 0x0004;
         ret = CAN_Init(dev, 0, &cancfg);
-        if(ret != 0) {
+        if (ret != 0)
+        {
             RCLCPP_ERROR(this->get_logger(), "CAN_Init channel0 failed");
             rclcpp::shutdown();
             return;
         }
         CAN_SetFilter(dev, cpot0, 0, 0, 0, 0, 1);
         ret = CAN_Init(dev, cpot1, &cancfg);
-        if(ret != 0) {
+        if (ret != 0)
+        {
             RCLCPP_ERROR(this->get_logger(), "CAN_Init channel1 failed");
             rclcpp::shutdown();
             return;
         }
         CAN_SetFilter(dev, cpot1, 0, 0, 0, 0, 1);
-        
-        // 创建定时器，每10毫秒回调一次
-        timer_ = this->create_wall_timer(std::chrono::milliseconds(10),
-            std::bind(&CanBusControlNode::timerCallback, this));
-        RCLCPP_INFO(this->get_logger(), "CANBusControl node initialized");
+
+        // 创建定时器，每10ms发送一次控制指令
+        timer_ = this->create_wall_timer(
+            std::chrono::milliseconds(10),
+            std::bind(&CanBusControlNode::timer_callback, this));
     }
 
 private:
-    void timerCallback() {
-        switch (frame_counter) {
-            case 0:
-                send_frame1();
-                RCLCPP_INFO(this->get_logger(), "send_frame1 = 0x%x", txmsg1[0].ID);
-                break;
-            case 1:
-                send_frame2();
-                RCLCPP_INFO(this->get_logger(), "send_frame2 = 0x%x", txmsg2[0].ID);
-                break;
-            case 2:
-                send_frame3();
-                RCLCPP_INFO(this->get_logger(), "send_frame3 = 0x%x", txmsg3[0].ID);
-                break;
-        }
-        frame_counter = (frame_counter + 1) % 3;
+    void calculate_speed(int speed, int rad, unsigned char *data)
+    {
+        // 目标档位 (运动学控制模式)
+        data[0] = 0x03;
+
+        // 目标速度 (单位: 0.001 m/s)
+        short speed_short = (short)(speed);   // 转换为short int类型
+        data[0] |= (speed_short & 0x0F) << 4; // 低4位,并保留目标档位
+        data[1] = (speed_short >> 4) & 0xFF;  // 高8位
+
+        // 目标角速度 (单位: 0.01 °/s)
+        short rad_short = (short)(rad);    // 转换为short int类型
+        data[2] = (rad_short & 0x0F) << 4; // 低4位
+        data[3] = (rad_short >> 4) & 0xFF; // 高8位
     }
 
-    // CAN帧发送函数，直接沿用原有实现
-    void send_frame1() {
+    void move(int speed, int rad)
+    {
+        // 清零信号结构体
         memset(&txmsg1[0], 0, sizeof(txmsg1[0]));
         txmsg1[0].ID = 0x18C4D1D0;
-        txmsg1[0].Data[0] = 0x83;
-        txmsg1[0].Data[1] = 0x3E;
-        txmsg1[0].Data[2] = 0x00;
-        txmsg1[0].Data[3] = 0x00;
-        txmsg1[0].Data[4] = 0x00;
-        txmsg1[0].Data[5] = 0x00;
-        txmsg1[0].Data[6] = 0x00;
-        txmsg1[0].Data[7] = 0xBD;
+
+        // 填充速度、角速度信号
+        calculate_speed(speed, rad, txmsg1[0].Data);
+
+        // Byte 5:  Byte5虽然手册没提，但是安全起见，我们还是设为0
+        txmsg1[0].Data[5] = 0;
+
+        // Byte 6: Alive Rolling Counter，每发送一帧递增, 取低4位
+        static unsigned char counter = 0; // 加个static
+        txmsg1[0].Data[6] = counter << 4; // 存入低四位
+        counter = (counter + 1) & 0x0F;   // 保证计数值在 0~15 内循环
+
+        // Byte7: 校验和，计算方法为 Byte0～Byte6 的 XOR 值
+        unsigned char checksum = 0;
+        for (int i = 0; i < 7; i++)
+        {
+            checksum ^= txmsg1[0].Data[i];
+        }
+        txmsg1[0].Data[7] = checksum;
+
+        // 其他的一些设定
         txmsg1[0].DataLen = 8;
         txmsg1[0].ExternFlag = 1;
+
+        // 发送CAN帧，超时时间设为100ms（具体值可调整）
         CAN_Transmit(dev, cpot0, &txmsg1[0], 1, 100);
+
+        // 调用打印函数输出发送帧内容
         print_frame(&txmsg1[0]);
     }
 
-    void send_frame2() {
-        memset(&txmsg2[0], 0, sizeof(txmsg2[0]));
-        txmsg2[0].ID = 0x18C4D1D0;
-        txmsg2[0].Data[0] = 0x83;
-        txmsg2[0].Data[1] = 0x3E;
-        txmsg2[0].Data[2] = 0x00;
-        txmsg2[0].Data[3] = 0x00;
-        txmsg2[0].Data[4] = 0x00;
-        txmsg2[0].Data[5] = 0x00;
-        txmsg2[0].Data[6] = 0x10;
-        txmsg2[0].Data[7] = 0xAD;
-        txmsg2[0].DataLen = 8;
-        txmsg2[0].ExternFlag = 1;
-        CAN_Transmit(dev, cpot0, txmsg2, 1, 100);
-        print_frame(&txmsg2[0]);
-    }
+    void timer_callback()
+    {
+        // 在这里设置你想要的速度和角速度
+        int speed = 0;
+        int rad = 30;
+        speed = speed * 1000; // 转换为 0.001 m/s
+        rad = rad * 100;      // 转换为 0.01 °/s
 
-    void send_frame3() {
-        memset(&txmsg3[0], 0, sizeof(txmsg3[0]));
-        txmsg3[0].ID = 0x18C4D1D0;
-        txmsg3[0].Data[0] = 0x83;
-        txmsg3[0].Data[1] = 0x00;
-        txmsg3[0].Data[2] = 0xC0;
-        txmsg3[0].Data[3] = 0x63;
-        txmsg3[0].Data[4] = 0x0F;
-        txmsg3[0].Data[5] = 0x00;
-        txmsg3[0].Data[6] = 0x20;
-        txmsg3[0].Data[7] = 0x8F;
-        txmsg3[0].DataLen = 8;
-        txmsg3[0].ExternFlag = 1;
-        CAN_Transmit(dev, cpot0, txmsg3, 1, 100);
+        // 调用 move 函数发送控制指令
+        move(speed, rad);
     }
 
     rclcpp::TimerBase::SharedPtr timer_;
-    int frame_counter;
 };
 
-// main函数：ROS2节点初始化及spin
-int main(int argc, char **argv) {
+int main(int argc, char **argv)
+{
     rclcpp::init(argc, argv);
     auto node = std::make_shared<CanBusControlNode>();
     rclcpp::spin(node);
     rclcpp::shutdown();
     return 0;
 }
-
-

@@ -38,7 +38,7 @@ typedef struct _Can_Msg {
     u32             TimeStamp;
     char            FrameType;
     char            DataLen;
-    char            Data[8];
+    unsigned char            Data[8];
     char            ExternFlag;
     char            RemoteFlag;
     char            BusSatus;
