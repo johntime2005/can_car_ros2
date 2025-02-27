@@ -16,6 +16,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBUSB REQUIRED libusb-1.0)
+find_package(ament_cmake_python REQUIRED)
 
 link_directories(${CMAKE_CURRENT_SOURCE_DIR}/lib)
 
@@ -33,6 +34,7 @@ include_directories(
 )
 
 add_executable(cmd_vel src/cmd_vel.cpp)
+add_executable(keycontrol src/wheeltec_keyboard.cpp)
 
 target_link_libraries(cmd_vel
   ${rclcpp_LIBRARIES}
@@ -46,7 +48,7 @@ target_link_libraries(cmd_vel
   ${LIBUSB_LIBRARIES}
 )
 
-ament_target_dependencies(cmd_vel 
+ament_target_dependencies(keycontrol 
   rclcpp 
   nav_msgs 
   std_msgs 
@@ -55,9 +57,19 @@ ament_target_dependencies(cmd_vel
   tf2_ros
   sensor_msgs
   tf2_geometry_msgs
+  type_description_interfaces
 )
 
 install(TARGETS cmd_vel
-  DESTINATION lib/${PROJECT_NAME})
+  DESTINATION lib/${PROJECT_NAME}
+)
+install(TARGETS keycontrol
+  DESTINATION lib/${PROJECT_NAME}
+)
 
-ament_package()
+# Install Python script
+# 设置 Python 安装目录
+install(PROGRAMS
+  script/wheeltec_keyboard.py
+  DESTINATION lib/${PROJECT_NAME}
+)
