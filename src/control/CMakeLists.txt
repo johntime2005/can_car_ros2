@@ -67,9 +67,9 @@ install(TARGETS keycontrol
   DESTINATION lib/${PROJECT_NAME}
 )
 
-# Install Python script
-# 设置 Python 安装目录
-install(PROGRAMS
-  script/wheeltec_keyboard.py
-  DESTINATION lib/${PROJECT_NAME}
-)
+# # Install Python script
+# # 设置 Python 安装目录
+# install(PROGRAMS
+#   script/wheeltec_keyboard.py
+#   DESTINATION lib/${PROJECT_NAME}
+# )

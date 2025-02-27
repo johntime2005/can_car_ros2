@@ -74,7 +74,7 @@ const char *msg = R"(
  space key, k : force stop
  anything else : stop smoothly
  b : switch to OmniMode/CommonMode
-/ to quit
+ ctrl-C to quit
  )";
 
 const char *e = R"(
@@ -182,15 +182,6 @@ public:
             {
                 x_ = 0;
                 th_ = 0.0;
-            }
-            if (key == '/')
-            { // CTRL-C
-                RCLCPP_INFO(this->get_logger(), "/ pressed, sending shutdown signal.");
-                auto msg = std_msgs::msg::Bool();
-                msg.data = true;
-                shutdown_pub_->publish(msg);
-                rclcpp::shutdown();
-                return; // Exit callback.
             }
         }
 
