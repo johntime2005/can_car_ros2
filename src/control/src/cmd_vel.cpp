@@ -116,10 +116,14 @@ private:
 
         txmsg1[0].Data[5] = 0;
 
-        // Byte 6: Alive Rolling Counter，每发送一帧递增, 取低4位
-        static unsigned char counter = 0; // 加个static
-        txmsg1[0].Data[6] = counter << 4; // 存入低四位
-        counter = (counter + 1) & 0x0F;   // 保证计数值在 0~15 内循环
+        // 使用当前时间计算 Alive Rolling Counter（心跳信号）
+        // 获取当前时间（单位为纳秒）
+        rclcpp::Time now = this->now();
+        // 假设定时器周期为 10ms，即1个周期为10,000,000纳秒
+        // 计算当前时间经过多少个10ms周期，并取低4位
+        unsigned char heartbeat = static_cast<unsigned char>((now.nanoseconds() / 10000000ULL) % 16);
+        // 将心跳信号存入低4位 (左移4位)
+        txmsg1[0].Data[6] = heartbeat << 4;
 
         // Byte7: 校验和，计算方法为 Byte0～Byte6 的 XOR 值
         unsigned char checksum = 0;

@@ -153,7 +153,6 @@ public:
     void Control();   // 循环控制代码
 
 private:
-    // cmd_vel 回调函数
     void Cmd_Vel_Callback(const geometry_msgs::msg::Twist::SharedPtr twist_aux);
     void Publish_Odom();      // 发布里程计话题
     // void Publish_ImuSensor(); // 发布IMU传感器话题（如需要可实现）
@@ -165,6 +164,7 @@ private:
     void print_frame(P_Can_Msg pCan_Msg);
     void calculate_speed(int speed, int rad, unsigned char *data);
     void move(int speed, int rad);
+    void timer_callback();
 
     // 时间、采样周期变量
     rclcpp::Time _Now, _Last_Time;
