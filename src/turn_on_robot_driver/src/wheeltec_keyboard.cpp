@@ -33,7 +33,7 @@
  *
  * Author: Darby Lim
  */
-
+#include <std_msgs/msg/float32.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include "std_msgs/msg/bool.hpp"
@@ -89,7 +89,8 @@ public:
                          control_turn_(0.0), control_HorizonMove_(0.0), Omni_(false)
     {
 
-        publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("cmd_vel", 10);
+        publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("turn_on_robot_driver", 10);
+        voltage_publisher_ = this->create_publisher<std_msgs::msg::Float32>("PowerVoltage", 1);
         timer_ = this->create_wall_timer(10ms, std::bind(&WheeltecKeyboard::timer_callback, this)); // 100Hz
 
         // Initialize moveBindings and speedBindings
@@ -215,6 +216,11 @@ public:
             twist.angular.z = 0.0;
         }
         publisher_->publish(twist);
+
+        // 模拟或获取实际电压值，这里以 12.5V 为例
+        std_msgs::msg::Float32 voltage_msg;
+        voltage_msg.data = 12.5;
+        voltage_publisher_->publish(voltage_msg);
     }
 
 private:
@@ -269,6 +275,7 @@ private:
     }
 
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr publisher_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr voltage_publisher_;
     rclcpp::TimerBase::SharedPtr timer_;
     double speed_;
     double turn_;

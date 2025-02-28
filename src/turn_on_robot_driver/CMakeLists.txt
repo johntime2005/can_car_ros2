@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-project(control)
+project(turn_on_robot_driver)
 
 # 设置 C++ 标准
 if(NOT CMAKE_CXX_STANDARD)
@@ -38,9 +38,9 @@ include_directories(
   ${LIBUSB_INCLUDE_DIRS}
 )
 
-# 定义 cmd_vel 可执行文件
-add_executable(cmd_vel src/cmd_vel.cpp)
-target_link_libraries(cmd_vel
+# 定义 turn_on_robot_driver 可执行文件
+add_executable(turn_on_robot_driver src/turn_on_robot_driver.cpp)
+target_link_libraries(turn_on_robot_driver
   ${rclcpp_LIBRARIES}
   ${nav_msgs_LIBRARIES}
   ${std_msgs_LIBRARIES}
@@ -51,7 +51,7 @@ target_link_libraries(cmd_vel
   canbus
   ${LIBUSB_LIBRARIES}
 )
-ament_target_dependencies(cmd_vel
+ament_target_dependencies(turn_on_robot_driver
   rclcpp
   nav_msgs
   std_msgs
@@ -79,7 +79,7 @@ ament_target_dependencies(keycontrol
 
 # 安装可执行文件到 lib/${PROJECT_NAME} 目录
 install(TARGETS
-  cmd_vel
+  turn_on_robot_driver
   keycontrol
   # data_fetch
   DESTINATION lib/${PROJECT_NAME}

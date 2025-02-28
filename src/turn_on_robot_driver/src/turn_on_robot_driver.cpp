@@ -5,7 +5,7 @@
 #include "std_msgs/msg/float32.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
-#include "control/canbus.h"
+#include "turn_on_robot_driver/canbus.h"
 #include "std_msgs/msg/bool.hpp"
 #include <string.h>
 #include <stdio.h>
@@ -29,7 +29,9 @@ public:
                           target_speed_(0),
                           target_rad_(0),
                           current_linear_speed_(0.0),   // 新增：当前线速度
-                          current_angular_speed_(0.0)   // 新增：当前角速度
+                          current_angular_speed_(0.0),   // 新增：当前角速度
+                          travel_distance_(0.0),          // 行驶路程 (m)
+                          yaw_angle_(0.0)                 // 偏航角 (deg)
     {
         // ... CAN 初始化代码 (与之前相同) ...
         // 初始化CAN设备及配置 (这部分代码基本保持不变)
@@ -82,6 +84,9 @@ public:
 
         // 创建定时器，每10ms执行一次回调函数
         timer_ = this->create_wall_timer(10ms, std::bind(&CanBusControlNode::timer_callback, this));
+
+        // 新增：初始化里程计话题发布者，队列深度为2
+        odom_publisher_ = this->create_publisher<nav_msgs::msg::Odometry>("odom", 2);
     }
 
     ~CanBusControlNode()
@@ -182,8 +187,11 @@ private:
     std::atomic<int> target_rad_;
     std::atomic<double> current_linear_speed_;  // 新增：当前线速度
     std::atomic<double> current_angular_speed_;  // 新增：当前角速度
+    std::atomic<double>travel_distance_;  // 用于积分累计行驶路程 (m)
+    std::atomic<double>yaw_angle_;        // 用于积分累计偏航角 (deg)
+    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_publisher_;
 
-    // ... 其余辅助函数 (print_frame, calculate_speed, move) ...
+   
     void print_frame(Can_Msg *msg)
     {
         printf("Sending CAN Frame:\n");
@@ -244,7 +252,7 @@ private:
     }
     void timer_callback()
     {
-        // 1. 发送控制指令 (根据 cmd_vel 设定的目标速度)
+        // 1. 发送控制指令 (根据 turn_on_robot_driver 设定的目标速度)
         move(target_speed_, target_rad_);
 
         // 2. 接收反馈数据
@@ -256,10 +264,34 @@ private:
             {
                 if (rxmsg[i].ID == 0x18C4D1EF)
                 { // 检查是否为 ctrl_fb 报文
-                    parseCtrlFbMessage(rxmsg[i].Data, rxmsg[i].DataLen);
+                parseCtrlFbMessage(rxmsg[i].Data, rxmsg[i].DataLen);
+                // 4. 根据当前速度积分计算行驶路程和偏航角
+                double dt = 0.01; // 定时器周期 10ms = 0.01 s
+                travel_distance_ =travel_distance_.load()+current_linear_speed_.load() * dt;
+                yaw_angle_ = yaw_angle_.load() + current_angular_speed_.load() * dt;
+                RCLCPP_INFO(this->get_logger(), "Current Speeds: Linear=%.3f m/s, Angular=%.2f deg/s ,Travel Distance: %.3f m, Yaw Angle: %.2f deg",
+                current_linear_speed_.load(), current_angular_speed_.load(),travel_distance_.load(), yaw_angle_.load());
+                
+                // 新增：发布里程计信息
+                nav_msgs::msg::Odometry odom_msg;
+                odom_msg.header.stamp = this->now();
+                odom_msg.header.frame_id = "odom";
+                // 设置位置信息（此处只设置 x 坐标为累计行驶路程，y 和 z 暂置0）
+                odom_msg.pose.pose.position.x = travel_distance_.load();
+                odom_msg.pose.pose.position.y = 0.0;
+                odom_msg.pose.pose.position.z = 0.0;
+                
+                // 将 yaw (角度转弧度) 用于四元数表示
+                double yaw_rad = yaw_angle_.load() * M_PI / 180.0;
+                tf2::Quaternion quat;
+                quat.setRPY(0, 0, yaw_rad);
+                odom_msg.pose.pose.orientation = tf2::toMsg(quat);
 
-                    RCLCPP_INFO(this->get_logger(), "Current Speeds: Linear=%.3f m/s, Angular=%.2f deg/s",
-                                current_linear_speed_.load(), current_angular_speed_.load());
+                // 设置线速度和角速度
+                odom_msg.twist.twist.linear.x = current_linear_speed_.load();
+                odom_msg.twist.twist.angular.z = current_angular_speed_.load();
+
+                odom_publisher_->publish(odom_msg);
                 }
             }
         }
@@ -267,6 +299,10 @@ private:
         {
             RCLCPP_ERROR(this->get_logger(), "Error: CAN_Receive failed.");
         }
+        
+        // RCLCPP_INFO(this->get_logger(), "Travel Distance: %.3f m, Yaw Angle: %.2f deg",
+        //             travel_distance_, yaw_angle_);
+    
     }
 };
 
@@ -274,17 +310,17 @@ class CmdVelSubscriber : public rclcpp::Node
 {
 public:
      CmdVelSubscriber(std::shared_ptr<CanBusControlNode> canbus_node)
-        : Node("cmd_vel_subscriber"), canbus_node_(canbus_node)
+        : Node("turn_on_robot_driver_subscriber"), canbus_node_(canbus_node)
     {
         subscription_ = this->create_subscription<geometry_msgs::msg::Twist>(
-            "cmd_vel", 10,
+            "turn_on_robot_driver", 10,
             std::bind(&CmdVelSubscriber::cmdVelCallback, this, std::placeholders::_1));
     }
 
 private:
     void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
     {
-        RCLCPP_INFO(this->get_logger(), "Received cmd_vel: linear.x=%.2f, angular.z=%.2f",
+        RCLCPP_INFO(this->get_logger(), "Received turn_on_robot_driver: linear.x=%.2f, angular.z=%.2f",
                     msg->linear.x, msg->angular.z);
         // 将接收到的消息用于更新控制参数
         if (canbus_node_)
