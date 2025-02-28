@@ -27,8 +27,11 @@ class CanBusControlNode : public rclcpp::Node
 public:
     CanBusControlNode() : Node("canbus_control"),
                           target_speed_(0),
-                          target_rad_(0)
+                          target_rad_(0),
+                          current_linear_speed_(0.0),   // 新增：当前线速度
+                          current_angular_speed_(0.0)   // 新增：当前角速度
     {
+        // ... CAN 初始化代码 (与之前相同) ...
         // 初始化CAN设备及配置 (这部分代码基本保持不变)
         int devs, ret;
         Can_Config cancfg;
@@ -77,32 +80,110 @@ public:
         }
         CAN_SetFilter(dev, cpot1, 0, 0, 0, 0, 1);
 
-        // 创建定时器，每10ms发送一次控制指令
+        // 创建定时器，每10ms执行一次回调函数
         timer_ = this->create_wall_timer(10ms, std::bind(&CanBusControlNode::timer_callback, this));
     }
 
     ~CanBusControlNode()
     {
+        // ... 关闭 CAN 通道代码 (与之前相同) ...
         // 关闭CAN通道，释放设备资源 (假设CAN_CloseDevice存在)
         CAN_CloseDevice(dev, cpot0);
         CAN_CloseDevice(dev, cpot1);
         RCLCPP_INFO(this->get_logger(), "CAN channels closed.");
     }
 
-    // 通过订阅更新目标参数；输入的线速度单位 m/s，角速度单位为用户定义单位（如：°/s）
+    // 通过订阅更新目标参数 (与之前相同)
     void set_target(double linear, double angular)
     {
-        // twist 消息的 linear.x 单位是 m/s，转换为 0.001 m/s 单位则要乘 1000
         target_speed_ = static_cast<int>(linear * 1000);
-        // 同理，angular.z 单位转换乘以 100
         target_rad_ = static_cast<int>(angular * 100);
+    }
+
+    // 获取当前线速度
+    double getLinearSpeed() const { return current_linear_speed_; }
+
+    // 获取当前角速度
+    double getAngularSpeed() const { return current_angular_speed_; }
+
+      // 计算校验和 (与之前版本相同)
+    uint8_t calculateChecksum(const uint8_t data[], int len) {
+    uint8_t checksum = 0;
+    for (int i = 0; i < len - 1; i++) {
+        checksum ^= data[i];
+    }
+    return checksum;
+}
+    // 解析 ctrl_fb 报文，并更新速度变量 (修改)
+    void parseCtrlFbMessage(const uint8_t data[], int len)
+    {
+        // ... (校验和检查、档位解析等代码与之前相同) ...
+        if (len != 8)
+        {
+            RCLCPP_ERROR(this->get_logger(), "Error: ctrl_fb message should have 8 bytes.");
+            return;
+        }
+
+        // 校验和检查
+        uint8_t receivedChecksum = data[7];
+        uint8_t calculatedChecksum = calculateChecksum(data, len);
+        if (receivedChecksum != calculatedChecksum)
+        {
+            RCLCPP_ERROR(this->get_logger(), "Error: Checksum mismatch. Received: 0x%02X, Calculated: 0x%02X",
+                         receivedChecksum, calculatedChecksum);
+            return;
+        }
+
+        // 解析档位
+        uint8_t gear = data[0] & 0x0F;
+        std::string gear_str;
+        switch (gear)
+        {
+        case 0x00:
+            gear_str = "disable";
+            break;
+        case 0x01:
+            gear_str = "Parking";
+            break;
+        case 0x02:
+            gear_str = "Neutral";
+            break;
+        case 0x03:
+            gear_str = "Kinematic Control";
+            break;
+        case 0x04:
+            gear_str = "Free Control";
+            break;
+        default:
+            gear_str = "Unknown (" + std::to_string(gear) + ")";
+            break;
+        }
+        RCLCPP_INFO(this->get_logger(), "Gear: %s", gear_str.c_str());
+
+        // 解析当前车体线速度
+        int16_t linearSpeedRaw = (data[1] << 8) | (data[0] & 0xF0);
+        linearSpeedRaw = linearSpeedRaw >> 4;
+        current_linear_speed_ = static_cast<double>(linearSpeedRaw) * 0.001; // 更新成员变量
+        RCLCPP_INFO(this->get_logger(), "Linear Speed: %.3f m/s", current_linear_speed_.load());
+
+        // 解析当前车体角速度
+        int16_t angularSpeedRaw = (data[3] << 8) | data[2];
+        current_angular_speed_ = static_cast<double>(angularSpeedRaw) * 0.01; // 更新成员变量
+        RCLCPP_INFO(this->get_logger(), "Angular Speed: %.2f deg/s", current_angular_speed_.load());
+
+        // 解析Alive Rolling Counter
+        uint8_t counter = data[6] & 0x0F;
+        RCLCPP_INFO(this->get_logger(), "Alive Rolling Counter: %d", counter);
     }
 
 private:
     rclcpp::TimerBase::SharedPtr timer_;
     std::atomic<int> target_speed_;
     std::atomic<int> target_rad_;
+    std::atomic<double> current_linear_speed_;  // 新增：当前线速度
+    std::atomic<double> current_angular_speed_;  // 新增：当前角速度
 
+    // ... 其余辅助函数 (print_frame, calculate_speed, move) ...
     void print_frame(Can_Msg *msg)
     {
         printf("Sending CAN Frame:\n");
@@ -161,26 +242,42 @@ private:
         CAN_Transmit(dev, cpot0, &txmsg1[0], 1, 100);
         print_frame(&txmsg1[0]);
     }
-
     void timer_callback()
     {
-        // 直接使用 target_speed_ 和 target_rad_
-        int speed = target_speed_;
-        int rad = target_rad_;
-        move(speed, rad);
+        // 1. 发送控制指令 (根据 cmd_vel 设定的目标速度)
+        move(target_speed_, target_rad_);
+
+        // 2. 接收反馈数据
+        int receivedCount = CAN_Receive(dev, cpot0, rxmsg, 100, 100);
+        if (receivedCount > 0)
+        {
+            // 3. 处理接收到的数据
+            for (int i = 0; i < receivedCount; i++)
+            {
+                if (rxmsg[i].ID == 0x18C4D1EF)
+                { // 检查是否为 ctrl_fb 报文
+                    parseCtrlFbMessage(rxmsg[i].Data, rxmsg[i].DataLen);
+
+                    RCLCPP_INFO(this->get_logger(), "Current Speeds: Linear=%.3f m/s, Angular=%.2f deg/s",
+                                current_linear_speed_.load(), current_angular_speed_.load());
+                }
+            }
+        }
+        else if (receivedCount < 0)
+        {
+            RCLCPP_ERROR(this->get_logger(), "Error: CAN_Receive failed.");
+        }
     }
 };
 
 class CmdVelSubscriber : public rclcpp::Node
 {
 public:
-    // 在构造函数中传入 CanBusControlNode 的指针
-    CmdVelSubscriber(std::shared_ptr<CanBusControlNode> canbus_node)
+     CmdVelSubscriber(std::shared_ptr<CanBusControlNode> canbus_node)
         : Node("cmd_vel_subscriber"), canbus_node_(canbus_node)
     {
-        // 在 CmdVelSubscriber 构造函数中明确使用绝对话题名
         subscription_ = this->create_subscription<geometry_msgs::msg::Twist>(
-            "/cmd_vel", 10, // 添加前导斜杠确保使用绝对话题名
+            "cmd_vel", 10,
             std::bind(&CmdVelSubscriber::cmdVelCallback, this, std::placeholders::_1));
     }
 
@@ -205,7 +302,6 @@ int main(int argc, char **argv)
     auto canbus_node = std::make_shared<CanBusControlNode>();
     auto twist_subscriber = std::make_shared<CmdVelSubscriber>(canbus_node);
 
-    // 使用多线程执行器同时处理 CAN 总线控制和 cmd_vel 订阅
     rclcpp::executors::MultiThreadedExecutor executor;
     executor.add_node(canbus_node);
     executor.add_node(twist_subscriber);
