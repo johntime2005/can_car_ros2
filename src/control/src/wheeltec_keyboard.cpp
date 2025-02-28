@@ -90,8 +90,6 @@ public:
     {
 
         publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("cmd_vel", 10);
-        // 新增 shutdown 发布器
-        shutdown_pub_ = this->create_publisher<std_msgs::msg::Bool>("/shutdown_signal", 10);
         timer_ = this->create_wall_timer(10ms, std::bind(&WheeltecKeyboard::timer_callback, this)); // 100Hz
 
         // Initialize moveBindings and speedBindings
@@ -271,7 +269,6 @@ private:
     }
 
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr publisher_;
-    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr shutdown_pub_;
     rclcpp::TimerBase::SharedPtr timer_;
     double speed_;
     double turn_;

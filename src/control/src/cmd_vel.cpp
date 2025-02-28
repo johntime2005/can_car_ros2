@@ -77,11 +77,6 @@ public:
         }
         CAN_SetFilter(dev, cpot1, 0, 0, 0, 0, 1);
 
-        // 添加 shutdown 信号订阅
-        shutdown_sub_ = this->create_subscription<std_msgs::msg::Bool>(
-            "/shutdown_signal", 10,
-            std::bind(&CanBusControlNode::shutdown_callback, this, std::placeholders::_1));
-
         // 创建定时器，每10ms发送一次控制指令
         timer_ = this->create_wall_timer(10ms, std::bind(&CanBusControlNode::timer_callback, this));
     }
@@ -107,16 +102,6 @@ private:
     rclcpp::TimerBase::SharedPtr timer_;
     std::atomic<int> target_speed_;
     std::atomic<int> target_rad_;
-
-    // 新增 shutdown 话题回调
-    void shutdown_callback(const std_msgs::msg::Bool::SharedPtr msg)
-    {
-        if (msg->data)
-        {
-            RCLCPP_INFO(this->get_logger(), "Received shutdown signal, shutting down.");
-            rclcpp::shutdown();
-        }
-    }
 
     void print_frame(Can_Msg *msg)
     {
@@ -184,8 +169,6 @@ private:
         int rad = target_rad_;
         move(speed, rad);
     }
-
-    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr shutdown_sub_;
 };
 
 class CmdVelSubscriber : public rclcpp::Node
