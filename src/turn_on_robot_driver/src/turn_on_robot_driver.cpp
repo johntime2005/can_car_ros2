@@ -28,8 +28,8 @@ public:
     CanBusControlNode() : Node("canbus_control"),
                           target_speed_(0),
                           target_rad_(0),
-                          current_linear_speed_(0.0),   // 新增：当前线速度
-                          current_angular_speed_(0.0),   // 新增：当前角速度
+                          current_linear_speed_(0.0),   // 当前线速度
+                          current_angular_speed_(0.0),   // 当前角速度
                           travel_distance_(0.0),          // 行驶路程 (m)
                           yaw_angle_(0.0)                 // 偏航角 (deg)
     {
@@ -40,21 +40,21 @@ public:
         devs = CAN_ScanDevice();
         if (devs <= 0)
         {
-            RCLCPP_ERROR(this->get_logger(), "No CAN device found");
+            RCLCPP_ERROR(this->get_logger(), "没有找到CAN设备");
             rclcpp::shutdown();
             return;
         }
         ret = CAN_OpenDevice(dev, cpot0);
         if (ret != 0)
         {
-            RCLCPP_ERROR(this->get_logger(), "CAN_OpenDevice channel0 failed");
+            RCLCPP_ERROR(this->get_logger(), "CAN_OpenDevice 通道0打开失败");
             rclcpp::shutdown();
             return;
         }
         ret = CAN_OpenDevice(dev, cpot1);
         if (ret != 0)
         {
-            RCLCPP_ERROR(this->get_logger(), "CAN_OpenDevice channel1 failed");
+            RCLCPP_ERROR(this->get_logger(), "CAN_OpenDevice 通道1打开失败");
             rclcpp::shutdown();
             return;
         }
@@ -68,7 +68,7 @@ public:
         ret = CAN_Init(dev, 0, &cancfg);
         if (ret != 0)
         {
-            RCLCPP_ERROR(this->get_logger(), "CAN_Init channel0 failed");
+            RCLCPP_ERROR(this->get_logger(), "CAN_Init 通道0初始化失败");
             rclcpp::shutdown();
             return;
         }
@@ -76,7 +76,7 @@ public:
         ret = CAN_Init(dev, cpot1, &cancfg);
         if (ret != 0)
         {
-            RCLCPP_ERROR(this->get_logger(), "CAN_Init channel1 failed");
+            RCLCPP_ERROR(this->get_logger(), "CAN_Init 通道1初始化失败");
             rclcpp::shutdown();
             return;
         }
@@ -85,7 +85,7 @@ public:
         // 创建定时器，每10ms执行一次回调函数
         timer_ = this->create_wall_timer(10ms, std::bind(&CanBusControlNode::timer_callback, this));
 
-        // 新增：初始化里程计话题发布者，队列深度为2
+        // 初始化里程计话题发布者，队列深度为2
         odom_publisher_ = this->create_publisher<nav_msgs::msg::Odometry>("odom", 2);
     }
 
@@ -95,7 +95,7 @@ public:
         // 关闭CAN通道，释放设备资源 (假设CAN_CloseDevice存在)
         CAN_CloseDevice(dev, cpot0);
         CAN_CloseDevice(dev, cpot1);
-        RCLCPP_INFO(this->get_logger(), "CAN channels closed.");
+        RCLCPP_INFO(this->get_logger(), "CAN通道已关闭。");
     }
 
     // 通过订阅更新目标参数 (与之前相同)
@@ -125,7 +125,7 @@ public:
         // ... (校验和检查、档位解析等代码与之前相同) ...
         if (len != 8)
         {
-            RCLCPP_ERROR(this->get_logger(), "Error: ctrl_fb message should have 8 bytes.");
+            RCLCPP_ERROR(this->get_logger(), "错误：ctrl_fb消息应该有8个字节。");
             return;
         }
 
@@ -134,7 +134,7 @@ public:
         uint8_t calculatedChecksum = calculateChecksum(data, len);
         if (receivedChecksum != calculatedChecksum)
         {
-            RCLCPP_ERROR(this->get_logger(), "Error: Checksum mismatch. Received: 0x%02X, Calculated: 0x%02X",
+            RCLCPP_ERROR(this->get_logger(), "错误：校验和不匹配。接收到：0x%02X，计算得出：0x%02X",
                          receivedChecksum, calculatedChecksum);
             return;
         }
@@ -145,48 +145,48 @@ public:
         switch (gear)
         {
         case 0x00:
-            gear_str = "disable";
+            gear_str = "禁用";
             break;
         case 0x01:
-            gear_str = "Parking";
+            gear_str = "停车";
             break;
         case 0x02:
-            gear_str = "Neutral";
+            gear_str = "空挡";
             break;
         case 0x03:
-            gear_str = "Kinematic Control";
+            gear_str = "运动学控制";
             break;
         case 0x04:
-            gear_str = "Free Control";
+            gear_str = "自由控制";
             break;
         default:
-            gear_str = "Unknown (" + std::to_string(gear) + ")";
+            gear_str = "未知 (" + std::to_string(gear) + ")";
             break;
         }
-        RCLCPP_INFO(this->get_logger(), "Gear: %s", gear_str.c_str());
+        RCLCPP_INFO(this->get_logger(), "档位: %s", gear_str.c_str());
 
         // 解析当前车体线速度
         int16_t linearSpeedRaw = (data[1] << 8) | (data[0] & 0xF0);
         linearSpeedRaw = linearSpeedRaw >> 4;
         current_linear_speed_ = static_cast<double>(linearSpeedRaw) * 0.001; // 更新成员变量
-        RCLCPP_INFO(this->get_logger(), "Linear Speed: %.3f m/s", current_linear_speed_.load());
+        RCLCPP_INFO(this->get_logger(), "线速度: %.3f m/s", current_linear_speed_.load());
 
         // 解析当前车体角速度
         int16_t angularSpeedRaw = (data[3] << 8) | data[2];
         current_angular_speed_ = static_cast<double>(angularSpeedRaw) * 0.01; // 更新成员变量
-        RCLCPP_INFO(this->get_logger(), "Angular Speed: %.2f deg/s", current_angular_speed_.load());
+        RCLCPP_INFO(this->get_logger(), "角速度: %.2f 度/秒", current_angular_speed_.load());
 
         // 解析Alive Rolling Counter
-        uint8_t counter = data[6] & 0x0F;
-        RCLCPP_INFO(this->get_logger(), "Alive Rolling Counter: %d", counter);
+        // uint8_t counter = data[6] & 0x0F;
+        // RCLCPP_INFO(this->get_logger(), "活动滚动计数器: %d", counter);
     }
 
 private:
     rclcpp::TimerBase::SharedPtr timer_;
     std::atomic<int> target_speed_;
     std::atomic<int> target_rad_;
-    std::atomic<double> current_linear_speed_;  // 新增：当前线速度
-    std::atomic<double> current_angular_speed_;  // 新增：当前角速度
+    std::atomic<double> current_linear_speed_;  // 当前线速度
+    std::atomic<double> current_angular_speed_;  // 当前角速度
     std::atomic<double>travel_distance_;  // 用于积分累计行驶路程 (m)
     std::atomic<double>yaw_angle_;        // 用于积分累计偏航角 (deg)
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_publisher_;
@@ -194,8 +194,8 @@ private:
    
     void print_frame(Can_Msg *msg)
     {
-        printf("Sending CAN Frame:\n");
-        printf("ID: 0x%X, Data: ", msg->ID);
+        printf("发送CAN帧:\n");
+        printf("ID: 0x%X, 数据: ", msg->ID);
         for (int i = 0; i < msg->DataLen; i++)
         {
             printf("%02X ", msg->Data[i]);
@@ -269,10 +269,10 @@ private:
                 double dt = 0.01; // 定时器周期 10ms = 0.01 s
                 travel_distance_ =travel_distance_.load()+current_linear_speed_.load() * dt;
                 yaw_angle_ = yaw_angle_.load() + current_angular_speed_.load() * dt;
-                RCLCPP_INFO(this->get_logger(), "Current Speeds: Linear=%.3f m/s, Angular=%.2f deg/s ,Travel Distance: %.3f m, Yaw Angle: %.2f deg",
+                RCLCPP_INFO(this->get_logger(), "当前速度: 线速度=%.3f m/s, 角速度=%.2f 度/秒, 行驶距离: %.3f m, 偏航角: %.2f 度",
                 current_linear_speed_.load(), current_angular_speed_.load(),travel_distance_.load(), yaw_angle_.load());
                 
-                // 新增：发布里程计信息
+                // 发布里程计信息
                 nav_msgs::msg::Odometry odom_msg;
                 odom_msg.header.stamp = this->now();
                 odom_msg.header.frame_id = "odom";
@@ -297,10 +297,10 @@ private:
         }
         else if (receivedCount < 0)
         {
-            RCLCPP_ERROR(this->get_logger(), "Error: CAN_Receive failed.");
+            RCLCPP_ERROR(this->get_logger(), "错误: CAN_Receive 失败。");
         }
         
-        // RCLCPP_INFO(this->get_logger(), "Travel Distance: %.3f m, Yaw Angle: %.2f deg",
+        // RCLCPP_INFO(this->get_logger(), "行驶距离: %.3f m, 偏航角: %.2f 度",
         //             travel_distance_, yaw_angle_);
     
     }
@@ -320,7 +320,7 @@ public:
 private:
     void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
     {
-        RCLCPP_INFO(this->get_logger(), "Received turn_on_robot_driver: linear.x=%.2f, angular.z=%.2f",
+        RCLCPP_INFO(this->get_logger(), "收到turn_on_robot_driver: linear.x=%.2f, angular.z=%.2f",
                     msg->linear.x, msg->angular.z);
         // 将接收到的消息用于更新控制参数
         if (canbus_node_)
