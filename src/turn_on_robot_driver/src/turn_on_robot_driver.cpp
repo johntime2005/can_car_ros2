@@ -3,6 +3,8 @@
 #include "geometry_msgs/msg/quaternion.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "std_msgs/msg/float32.hpp"
+#include "std_msgs/msg/float32_multi_array.hpp"
+#include "std_msgs/msg/string.hpp"      // 添加此头文件
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "turn_on_robot_driver/canbus.h"
@@ -11,7 +13,7 @@
 #include <stdio.h>
 #include <chrono>
 #include <atomic>
-
+#include <sstream>
 using namespace std::chrono_literals;
 
 int dev = 0;
@@ -87,6 +89,8 @@ public:
 
         // 初始化里程计话题发布者，队列深度为2
         odom_publisher_ = this->create_publisher<nav_msgs::msg::Odometry>("odom", 2);
+        // 修改发布者类型为 std_msgs::msg::String，用于发送带标题的文本消息
+        voltage_publisher_ = this->create_publisher<std_msgs::msg::String>("power", 2);
     }
 
     ~CanBusControlNode()
@@ -193,8 +197,9 @@ private:
     float voltage;//读取电压值
     float current;//读取电流值
     float capacity;//读取电量值
+    // 修改为 String 类型的发布者
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr voltage_publisher_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_publisher_;
-    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr voltage_publisher_;
    
     void print_frame(Can_Msg *msg)
     {
@@ -241,6 +246,15 @@ private:
     // 32-47：解析电量值 (单位: 0.01Ah)
     uint16_t capacity_raw = (data[5] << 8) | data[4];
     capacity = static_cast<double>(capacity_raw) * 0.01;
+    //发布电池信息的话题
+    // 构造带标题的文本消息，每行包含对应内容
+    std_msgs::msg::String battery_msg;
+    std::stringstream ss;
+    ss << "电压: " << voltage << " V\n"
+       << "电流: " << current << " A\n"
+       << "电量: " << capacity << " Ah";
+    battery_msg.data = ss.str();
+    voltage_publisher_->publish(battery_msg);
 }
     void move(int speed, int rad)
     {
