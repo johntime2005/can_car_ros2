@@ -88,10 +88,16 @@ public:
                          target_speed_(0.0), target_turn_(0.0), target_HorizonMove_(0.0), control_speed_(0.0),
                          control_turn_(0.0), control_HorizonMove_(0.0), Omni_(false)
     {
-
         publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("turn_on_robot_driver", 10);
         voltage_publisher_ = this->create_publisher<std_msgs::msg::Float32>("PowerVoltage", 1);
         timer_ = this->create_wall_timer(10ms, std::bind(&WheeltecKeyboard::timer_callback, this)); // 100Hz
+
+        battery_voltage_sub_ = this->create_subscription<std_msgs::msg::Float32>(
+            "battery_voltage", 10, std::bind(&WheeltecKeyboard::battery_voltage_callback, this, std::placeholders::_1));
+        battery_current_sub_ = this->create_subscription<std_msgs::msg::Float32>(
+            "battery_current", 10, std::bind(&WheeltecKeyboard::battery_current_callback, this, std::placeholders::_1));
+        battery_capacity_sub_ = this->create_subscription<std_msgs::msg::Float32>(
+            "battery_capacity", 10, std::bind(&WheeltecKeyboard::battery_capacity_callback, this, std::placeholders::_1));
 
         // Initialize moveBindings and speedBindings
         moveBindings_['i'] = {1, 0};
@@ -217,10 +223,6 @@ public:
         }
         publisher_->publish(twist);
 
-        // 模拟或获取实际电压值，这里以 12.5V 为例
-        std_msgs::msg::Float32 voltage_msg;
-        voltage_msg.data = 12.5;
-        voltage_publisher_->publish(voltage_msg);
     }
 
 private:
@@ -276,6 +278,9 @@ private:
 
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr publisher_;
     rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr voltage_publisher_;
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr battery_voltage_sub_;
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr battery_current_sub_;
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr battery_capacity_sub_;
     rclcpp::TimerBase::SharedPtr timer_;
     double speed_;
     double turn_;
@@ -297,6 +302,21 @@ private:
     struct termios settings_;
     struct termios original_settings_;
 #endif
+
+    void battery_voltage_callback(const std_msgs::msg::Float32::SharedPtr msg)
+    {
+        RCLCPP_INFO(this->get_logger(), "Battery Voltage: %.2f V", msg->data);
+    }
+
+    void battery_current_callback(const std_msgs::msg::Float32::SharedPtr msg)
+    {
+        RCLCPP_INFO(this->get_logger(), "Battery Current: %.2f A", msg->data);
+    }
+
+    void battery_capacity_callback(const std_msgs::msg::Float32::SharedPtr msg)
+    {
+        RCLCPP_INFO(this->get_logger(), "Battery Capacity: %.2f Ah", msg->data);
+    }
 };
 
 int main(int argc, char **argv)

@@ -105,7 +105,7 @@ public:
         target_rad_ = static_cast<int>(angular * 100);
     }
 
-    // 获取当前线速度
+    // 获取当前线速度yue
     double getLinearSpeed() const { return current_linear_speed_; }
 
     // 获取当前角速度
@@ -189,8 +189,12 @@ private:
     std::atomic<double> current_angular_speed_;  // 当前角速度
     std::atomic<double>travel_distance_;  // 用于积分累计行驶路程 (m)
     std::atomic<double>yaw_angle_;        // 用于积分累计偏航角 (deg)
+    
+    float voltage;//读取电压值
+    float current;//读取电流值
+    float capacity;//读取电量值
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_publisher_;
-
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr voltage_publisher_;
    
     void print_frame(Can_Msg *msg)
     {
@@ -217,7 +221,27 @@ private:
         data[3] |= (rad_short >> 4) & 0xFF;  // 高8位
         data[4] |= (rad_short >> 12) & 0x0F; // 最高4位
     }
+  
+    void caculate_voltage(const uint8_t data[], int len)
+    {
+    if (len != 8)
+    {
+        RCLCPP_ERROR(this->get_logger(), "错误：电池反馈消息应该有8个字节。");
+        return;
+    }
+    // 0-15：解析电压值 (单位: 0.01V)
+    //data[0] 为低位，data[1]为高位,电压值为data[1]data[0]由16进制转化成10进制
+    uint16_t voltage_raw = (data[1] << 8) | data[0];
+    voltage = static_cast<double>(voltage_raw) * 0.01;
 
+    // 16-31：解析电流值 (单位: 0.01A)
+    int16_t current_raw = (data[3] << 8) | data[2];
+    current = static_cast<double>(current_raw) * 0.01;
+
+    // 32-47：解析电量值 (单位: 0.01Ah)
+    uint16_t capacity_raw = (data[5] << 8) | data[4];
+    capacity = static_cast<double>(capacity_raw) * 0.01;
+}
     void move(int speed, int rad)
     {
         // 清零信号结构体
@@ -252,13 +276,20 @@ private:
     }
     void timer_callback()
     {
+        RCLCPP_INFO(this->get_logger(), "定时器回调被调用");
         // 1. 发送控制指令 (根据 turn_on_robot_driver 设定的目标速度)
         move(target_speed_, target_rad_);
-
+        memset(&rxmsg, 0, sizeof(rxmsg[0]));
         // 2. 接收反馈数据
         int receivedCount = CAN_Receive(dev, cpot0, rxmsg, 100, 100);
         if (receivedCount > 0)
         {
+            // RCLCPP_INFO(this->get_logger(), "接收到 %d 个 CAN 帧", receivedCount);
+            // for (int i = 0; i < receivedCount; i++)
+            // {
+            //     RCLCPP_INFO(this->get_logger(), "CAN 帧 %d:", i);
+            //     RCLCPP_INFO(this->get_logger(), "ID: %08X", rxmsg[i].ID);
+            // }
             // 3. 处理接收到的数据
             for (int i = 0; i < receivedCount; i++)
             {
@@ -291,8 +322,20 @@ private:
                 odom_msg.twist.twist.linear.x = current_linear_speed_.load();
                 odom_msg.twist.twist.angular.z = current_angular_speed_.load();
 
+                RCLCPP_INFO(this->get_logger(), "发布里程计信息: 线速度=%.3f m/s, 角速度=%.2f 度/秒, 行驶距离: %.3f m, 偏航角: %.2f 度",
+                odom_msg.twist.twist.linear.x, odom_msg.twist.twist.angular.z, odom_msg.pose.pose.position.x, yaw_angle_.load());
+
                 odom_publisher_->publish(odom_msg);
                 }
+                if(rxmsg[i].ID == 0x18C4E1EF)
+                {
+                   
+                    RCLCPP_INFO(this->get_logger(), "接收到 0x18C4E1EF CAN 帧");
+                    caculate_voltage(rxmsg[i].Data, rxmsg[i].DataLen);
+
+                    RCLCPP_INFO(this->get_logger(), "电压值: %.1f V/n 电流值: %.1fA/n 电量值：%.1fAh", voltage,current,capacity);
+                }
+                
             }
         }
         else if (receivedCount < 0)
