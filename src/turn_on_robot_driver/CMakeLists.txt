@@ -77,10 +77,17 @@ ament_target_dependencies(keycontrol
   type_description_interfaces
 )
 
+# 添加launch可执行文件
+add_executable(launch_nodes src/launch.cpp)
+ament_target_dependencies(launch_nodes
+  rclcpp
+)
+
 # 安装可执行文件到 lib/${PROJECT_NAME} 目录
 install(TARGETS
   turn_on_robot_driver
   keycontrol
+  launch_nodes
   # data_fetch
   DESTINATION lib/${PROJECT_NAME}
 )
